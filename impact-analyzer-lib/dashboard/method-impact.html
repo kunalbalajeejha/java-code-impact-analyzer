@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Method Impact Analyzer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; padding: 24px; }
+  h1 { font-size: 1.4rem; color: #7dd3fc; margin-bottom: 4px; }
+  .subtitle { color: #64748b; font-size: 0.85rem; margin-bottom: 24px; }
+
+  .method-header {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-left: 4px solid #7dd3fc;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+  }
+  .method-name { font-size: 1.1rem; font-family: monospace; color: #38bdf8; }
+  .method-class { font-size: 0.8rem; color: #64748b; margin-top: 2px; }
+  .stats-row { display: flex; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+  .stat-box {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    padding: 10px 16px;
+    text-align: center;
+    min-width: 110px;
+  }
+  .stat-value { font-size: 1.5rem; font-weight: 700; }
+  .stat-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+  .stat-box.lines .stat-value { color: #a78bfa; }
+  .stat-box.tables-r .stat-value { color: #34d399; }
+  .stat-box.tables-w .stat-value { color: #f97316; }
+  .stat-box.apis .stat-value { color: #f472b6; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  @media(max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .card-title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot-green { background: #34d399; }
+  .dot-orange { background: #f97316; }
+  .dot-pink { background: #f472b6; }
+  .dot-purple { background: #a78bfa; }
+
+  .table-item, .api-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 10px;
+    border-radius: 5px;
+    margin-bottom: 6px;
+    font-size: 0.85rem;
+    font-family: monospace;
+  }
+  .table-read { background: #052e16; border: 1px solid #166534; color: #86efac; }
+  .table-write { background: #431407; border: 1px solid #9a3412; color: #fdba74; }
+  .api-call { background: #2d1b69; border: 1px solid #5b21b6; color: #c4b5fd; }
+  .badge {
+    font-size: 0.65rem;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-family: sans-serif;
+    font-weight: 600;
+  }
+  .badge-select { background: #166534; color: #bbf7d0; }
+  .badge-update { background: #9a3412; color: #fed7aa; }
+  .badge-insert { background: #7c2d12; color: #fecaca; }
+  .badge-post { background: #4c1d95; color: #ddd6fe; }
+  .badge-get { background: #1e3a5f; color: #bae6fd; }
+
+  /* Call tree */
+  .call-tree { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  .tree-node {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    margin-bottom: 2px;
+    font-family: monospace;
+    font-size: 0.8rem;
+  }
+  .tree-indent { color: #334155; white-space: pre; }
+  .tree-method { color: #93c5fd; }
+  .tree-lines { color: #64748b; font-size: 0.72rem; margin-left: auto; padding-left: 12px; white-space: nowrap; }
+  .tree-db { color: #34d399; }
+  .tree-api { color: #f472b6; }
+  .tree-highlight { background: #1e3a5f; border-radius: 3px; padding: 1px 4px; }
+
+  /* Line bar */
+  .line-breakdown { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 0.8rem; }
+  .bar-label { width: 140px; color: #94a3b8; flex-shrink: 0; }
+  .bar-track { flex: 1; background: #0f172a; border-radius: 999px; height: 10px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 999px; transition: width 0.8s ease; }
+  .bar-count { width: 50px; text-align: right; color: #64748b; flex-shrink: 0; }
+
+  select {
+    background: #1e293b;
+    border: 1px solid #475569;
+    color: #e2e8f0;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    margin-bottom: 20px;
+  }
+  select:focus { outline: none; border-color: #7dd3fc; }
+</style>
+</head>
+<body>
+
+<h1>⚡ Method Impact Analyzer</h1>
+<p class="subtitle">End-to-end execution footprint per Java method</p>
+
+<label for="methodSelect" style="font-size:0.8rem;color:#64748b;margin-right:8px;">Select Method:</label>
+<select id="methodSelect" onchange="render()">
+  <option value="0">OrderService.placeOrder()</option>
+  <option value="1">UserService.getUserProfile()</option>
+  <option value="2">ReportService.generateMonthlyReport()</option>
+</select>
+
+<div id="app"></div>
+
+<script>
+const data = [
+  {
+    method: "placeOrder",
+    clazz: "com.shop.service.OrderService",
+    totalLines: 847,
+    reads: [
+      { table: "USERS", ops: 1, badge: "SELECT" },
+      { table: "PRODUCTS", ops: 3, badge: "SELECT" },
+      { table: "INVENTORY", ops: 3, badge: "SELECT" },
+      { table: "DISCOUNT_CODES", ops: 1, badge: "SELECT" },
+    ],
+    writes: [
+      { table: "ORDERS", ops: 1, badge: "INSERT" },
+      { table: "ORDER_ITEMS", ops: 3, badge: "INSERT" },
+      { table: "INVENTORY", ops: 3, badge: "UPDATE" },
+      { table: "PAYMENTS", ops: 1, badge: "INSERT" },
+    ],
+    apis: [
+      { name: "PaymentGateway /v1/charge", method: "POST", latency: "~120ms" },
+      { name: "NotificationSvc /send/email", method: "POST", latency: "~45ms" },
+      { name: "InventorySync /reserve", method: "POST", latency: "~30ms" },
+    ],
+    lineBreakdown: [
+      { label: "Business Logic", lines: 312, color: "#a78bfa" },
+      { label: "DB Reads", lines: 180, color: "#34d399" },
+      { label: "DB Writes", lines: 195, color: "#f97316" },
+      { label: "API Calls", lines: 90, color: "#f472b6" },
+      { label: "Validation", lines: 70, color: "#38bdf8" },
+    ],
+    callTree: [
+      { indent: "", name: "placeOrder(orderId)", lines: 847, type: "root" },
+      { indent: "├─ ", name: "validateOrder()", lines: 70, type: "normal" },
+      { indent: "│  ├─ ", name: "SELECT USERS", lines: 12, type: "db" },
+      { indent: "│  └─ ", name: "validateDiscountCode()", lines: 20, type: "normal" },
+      { indent: "│     └─ ", name: "SELECT DISCOUNT_CODES", lines: 8, type: "db" },
+      { indent: "├─ ", name: "reserveInventory()", lines: 210, type: "normal" },
+      { indent: "│  ├─ ", name: "SELECT PRODUCTS (x3)", lines: 36, type: "db" },
+      { indent: "│  ├─ ", name: "SELECT INVENTORY (x3)", lines: 30, type: "db" },
+      { indent: "│  ├─ ", name: "UPDATE INVENTORY (x3)", lines: 45, type: "db" },
+      { indent: "│  └─ ", name: "POST /reserve [InventorySync]", lines: 35, type: "api" },
+      { indent: "├─ ", name: "processPayment()", lines: 185, type: "normal" },
+      { indent: "│  ├─ ", name: "INSERT PAYMENTS", lines: 40, type: "db" },
+      { indent: "│  └─ ", name: "POST /v1/charge [PaymentGateway]", lines: 55, type: "api" },
+      { indent: "└─ ", name: "createOrderRecord()", lines: 382, type: "normal" },
+      { indent: "   ├─ ", name: "INSERT ORDERS", lines: 50, type: "db" },
+      { indent: "   ├─ ", name: "INSERT ORDER_ITEMS (x3)", lines: 70, type: "db" },
+      { indent: "   └─ ", name: "POST /send/email [NotificationSvc]", lines: 45, type: "api" },
+    ]
+  },
+  {
+    method: "getUserProfile",
+    clazz: "com.shop.service.UserService",
+    totalLines: 203,
+    reads: [
+      { table: "USERS", ops: 1, badge: "SELECT" },
+      { table: "USER_PREFERENCES", ops: 1, badge: "SELECT" },
+      { table: "ORDER_SUMMARY", ops: 1, badge: "SELECT" },
+    ],
+    writes: [],
+    apis: [
+      { name: "AvatarService /profile/avatar", method: "GET", latency: "~20ms" },
+    ],
+    lineBreakdown: [
+      { label: "Business Logic", lines: 80, color: "#a78bfa" },
+      { label: "DB Reads", lines: 95, color: "#34d399" },
+      { label: "API Calls", lines: 28, color: "#f472b6" },
+    ],
+    callTree: [
+      { indent: "", name: "getUserProfile(userId)", lines: 203, type: "root" },
+      { indent: "├─ ", name: "fetchUser()", lines: 40, type: "normal" },
+      { indent: "│  └─ ", name: "SELECT USERS", lines: 12, type: "db" },
+      { indent: "├─ ", name: "fetchPreferences()", lines: 38, type: "normal" },
+      { indent: "│  └─ ", name: "SELECT USER_PREFERENCES", lines: 10, type: "db" },
+      { indent: "├─ ", name: "fetchOrderSummary()", lines: 45, type: "normal" },
+      { indent: "│  └─ ", name: "SELECT ORDER_SUMMARY", lines: 20, type: "db" },
+      { indent: "└─ ", name: "enrichWithAvatar()", lines: 80, type: "normal" },
+      { indent: "   └─ ", name: "GET /profile/avatar [AvatarService]", lines: 28, type: "api" },
+    ]
+  },
+  {
+    method: "generateMonthlyReport",
+    clazz: "com.shop.service.ReportService",
+    totalLines: 2140,
+    reads: [
+      { table: "ORDERS", ops: 1, badge: "SELECT" },
+      { table: "ORDER_ITEMS", ops: 1, badge: "SELECT" },
+      { table: "PRODUCTS", ops: 1, badge: "SELECT" },
+      { table: "USERS", ops: 1, badge: "SELECT" },
+      { table: "PAYMENTS", ops: 1, badge: "SELECT" },
+      { table: "REFUNDS", ops: 1, badge: "SELECT" },
+    ],
+    writes: [
+      { table: "REPORT_CACHE", ops: 1, badge: "INSERT" },
+      { table: "REPORT_AUDIT_LOG", ops: 1, badge: "INSERT" },
+    ],
+    apis: [
+      { name: "Analytics /aggregate", method: "POST", latency: "~800ms" },
+      { name: "StorageSvc /upload/report", method: "POST", latency: "~200ms" },
+      { name: "SlackBot /notify/channel", method: "POST", latency: "~40ms" },
+    ],
+    lineBreakdown: [
+      { label: "Business Logic", lines: 850, color: "#a78bfa" },
+      { label: "DB Reads", lines: 620, color: "#34d399" },
+      { label: "DB Writes", lines: 160, color: "#f97316" },
+      { label: "API Calls", lines: 310, color: "#f472b6" },
+      { label: "Data Transform", lines: 200, color: "#38bdf8" },
+    ],
+    callTree: [
+      { indent: "", name: "generateMonthlyReport(month, year)", lines: 2140, type: "root" },
+      { indent: "├─ ", name: "collectRawData()", lines: 620, type: "normal" },
+      { indent: "│  ├─ ", name: "SELECT ORDERS", lines: 80, type: "db" },
+      { indent: "│  ├─ ", name: "SELECT ORDER_ITEMS", lines: 100, type: "db" },
+      { indent: "│  ├─ ", name: "SELECT PRODUCTS", lines: 60, type: "db" },
+      { indent: "│  ├─ ", name: "SELECT USERS", lines: 50, type: "db" },
+      { indent: "│  ├─ ", name: "SELECT PAYMENTS", lines: 90, type: "db" },
+      { indent: "│  └─ ", name: "SELECT REFUNDS", lines: 70, type: "db" },
+      { indent: "├─ ", name: "aggregateMetrics()", lines: 850, type: "normal" },
+      { indent: "│  └─ ", name: "POST /aggregate [Analytics]", lines: 310, type: "api" },
+      { indent: "├─ ", name: "persistReport()", lines: 360, type: "normal" },
+      { indent: "│  ├─ ", name: "INSERT REPORT_CACHE", lines: 60, type: "db" },
+      { indent: "│  ├─ ", name: "INSERT REPORT_AUDIT_LOG", lines: 50, type: "db" },
+      { indent: "│  └─ ", name: "POST /upload/report [StorageSvc]", lines: 80, type: "api" },
+      { indent: "└─ ", name: "notify()", lines: 310, type: "normal" },
+      { indent: "   └─ ", name: "POST /notify/channel [SlackBot]", lines: 40, type: "api" },
+    ]
+  }
+];
+
+function render() {
+  const d = data[document.getElementById('methodSelect').value];
+  const maxLines = Math.max(...d.lineBreakdown.map(x => x.lines));
+
+  document.getElementById('app').innerHTML = `
+    <div class="method-header">
+      <div class="method-name">${d.clazz.split('.').pop()}.${d.method}()</div>
+      <div class="method-class">${d.clazz}</div>
+      <div class="stats-row">
+        <div class="stat-box lines"><div class="stat-value">${d.totalLines.toLocaleString()}</div><div class="stat-label">Lines Executed</div></div>
+        <div class="stat-box tables-r"><div class="stat-value">${d.reads.length}</div><div class="stat-label">Tables Read</div></div>
+        <div class="stat-box tables-w"><div class="stat-value">${d.writes.length}</div><div class="stat-label">Tables Written</div></div>
+        <div class="stat-box apis"><div class="stat-value">${d.apis.length}</div><div class="stat-label">APIs Called</div></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-title"><div class="dot dot-green"></div>Tables Read</div>
+        ${d.reads.length ? d.reads.map(t => `
+          <div class="table-item table-read">
+            <span>${t.table}</span>
+            <span class="badge badge-select">${t.badge} ×${t.ops}</span>
+          </div>`).join('') : '<div style="color:#475569;font-size:0.8rem">No tables read</div>'}
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="dot dot-orange"></div>Tables Written</div>
+        ${d.writes.length ? d.writes.map(t => `
+          <div class="table-item table-write">
+            <span>${t.table}</span>
+            <span class="badge badge-${t.badge.toLowerCase()}">${t.badge} ×${t.ops}</span>
+          </div>`).join('') : '<div style="color:#475569;font-size:0.8rem">No tables written (read-only)</div>'}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title"><div class="dot dot-pink"></div>External API Calls</div>
+      ${d.apis.map(a => `
+        <div class="api-item api-call">
+          <span>${a.name}</span>
+          <span style="display:flex;gap:6px;align-items:center">
+            <span style="color:#64748b;font-size:0.75rem">${a.latency}</span>
+            <span class="badge badge-${a.method.toLowerCase()}">${a.method}</span>
+          </span>
+        </div>`).join('')}
+    </div>
+
+    <div class="line-breakdown">
+      <div class="card-title"><div class="dot dot-purple"></div>Line Execution Breakdown</div>
+      ${d.lineBreakdown.map(b => `
+        <div class="bar-row">
+          <div class="bar-label">${b.label}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${(b.lines/maxLines*100).toFixed(1)}%;background:${b.color}"></div></div>
+          <div class="bar-count">${b.lines}</div>
+        </div>`).join('')}
+    </div>
+
+    <div class="call-tree">
+      <div class="card-title"><div class="dot" style="background:#38bdf8"></div>Call Tree</div>
+      ${d.callTree.map(n => `
+        <div class="tree-node">
+          <span class="tree-indent">${n.indent}</span>
+          <span class="${n.type === 'db' ? 'tree-db' : n.type === 'api' ? 'tree-api' : n.type === 'root' ? 'tree-highlight tree-method' : 'tree-method'}">${n.name}</span>
+          <span class="tree-lines">${n.lines} lines</span>
+        </div>`).join('')}
+    </div>
+  `;
+}
+
+render();
+</script>
+</body>
+</html>
