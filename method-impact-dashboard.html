@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Method Impact Analyzer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; padding: 24px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+  h1 { font-size: 1.4rem; color: #7dd3fc; }
+  .subtitle { color: #64748b; font-size: 0.8rem; margin-top: 2px; }
+  .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .api-input { background: #1e293b; border: 1px solid #475569; color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 0.82rem; width: 240px; }
+  .api-input:focus { outline: none; border-color: #7dd3fc; }
+  select { background: #1e293b; border: 1px solid #475569; color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 0.82rem; cursor: pointer; min-width: 240px; }
+  select:focus { outline: none; border-color: #7dd3fc; }
+  .btn { background: #1e3a5f; border: 1px solid #2563eb; color: #93c5fd; padding: 6px 14px; border-radius: 6px; font-size: 0.82rem; cursor: pointer; }
+  .btn:hover { background: #1d4ed8; color: #fff; }
+  .btn.on { background: #065f46; border-color: #10b981; color: #6ee7b7; }
+  .status-label { font-size: 0.75rem; color: #64748b; display: flex; align-items: center; gap: 6px; }
+  .sdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .s-live { background: #10b981; box-shadow: 0 0 6px #10b981; }
+  .s-err  { background: #ef4444; }
+  .s-idle { background: #475569; }
+
+  .method-header { background: #1e293b; border: 1px solid #334155; border-left: 4px solid #7dd3fc; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+  .method-name { font-size: 1.1rem; font-family: monospace; color: #38bdf8; }
+  .method-meta { font-size: 0.78rem; color: #64748b; margin-top: 4px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .stats-row { display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+  .stat-box { background: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 10px 16px; text-align: center; min-width: 100px; }
+  .stat-value { font-size: 1.4rem; font-weight: 700; }
+  .stat-label { font-size: 0.68rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+  .sv-exec { color: #38bdf8; }
+  .sv-lines { color: #a78bfa; }
+  .sv-read { color: #34d399; }
+  .sv-write { color: #f97316; }
+  .sv-api { color: #f472b6; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media(max-width:700px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .card-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; color: #94a3b8; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  .row-item { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; border-radius: 5px; margin-bottom: 6px; font-size: 0.83rem; font-family: monospace; }
+  .row-read  { background: #052e16; border: 1px solid #166534; color: #86efac; }
+  .row-write { background: #431407; border: 1px solid #9a3412; color: #fdba74; }
+  .row-api   { background: #2d1b69; border: 1px solid #5b21b6; color: #c4b5fd; }
+  .badge { font-size: 0.63rem; padding: 2px 7px; border-radius: 999px; font-family: sans-serif; font-weight: 600; white-space: nowrap; }
+  .b-select { background:#166534; color:#bbf7d0; }
+  .b-insert { background:#7c2d12; color:#fecaca; }
+  .b-update { background:#9a3412; color:#fed7aa; }
+  .b-delete { background:#7f1d1d; color:#fca5a5; }
+  .b-get    { background:#1e3a5f; color:#bae6fd; }
+  .b-post   { background:#4c1d95; color:#ddd6fe; }
+  .b-put    { background:#365314; color:#d9f99d; }
+  .b-patch  { background:#1c1917; color:#d6d3d1; }
+
+  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 0.8rem; }
+  .bar-label { width: 140px; color: #94a3b8; flex-shrink: 0; }
+  .bar-track { flex: 1; background: #0f172a; border-radius: 999px; height: 10px; overflow: hidden; }
+  .bar-fill  { height: 100%; border-radius: 999px; }
+  .bar-count { width: 50px; text-align: right; color: #64748b; flex-shrink: 0; }
+
+  .tree-node { display: flex; align-items: flex-start; margin-bottom: 2px; font-family: monospace; font-size: 0.79rem; }
+  .tree-indent { color: #334155; white-space: pre; }
+  .t-root   { background: #1e3a5f; border-radius: 3px; padding: 1px 4px; color: #7dd3fc; }
+  .t-db     { color: #34d399; }
+  .t-api    { color: #f472b6; }
+  .t-plain  { color: #93c5fd; }
+  .t-detail { color: #475569; font-size: 0.7rem; margin-left: auto; padding-left: 12px; white-space: nowrap; }
+
+  .raw-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; font-family: monospace; }
+  .raw-table th { text-align: left; color: #475569; padding: 4px 8px; border-bottom: 1px solid #1e293b; font-family: sans-serif; font-size: 0.68rem; text-transform: uppercase; }
+  .raw-table td { padding: 5px 8px; border-bottom: 1px solid #1a2332; vertical-align: top; }
+  .raw-table tr:last-child td { border-bottom: none; }
+  .op-select { color: #34d399; } .op-insert { color: #f97316; } .op-update { color: #fb923c; } .op-delete { color: #f87171; }
+  .sql-cell { color: #64748b; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .frame-cell { color: #475569; font-size: 0.68rem; }
+
+  .tab-row { display: flex; gap: 4px; margin-bottom: 14px; }
+  .tab { padding: 4px 14px; border-radius: 5px; font-size: 0.75rem; cursor: pointer; border: 1px solid #1e293b; color: #64748b; background: transparent; }
+  .tab.active { background: #1e3a5f; border-color: #2563eb; color: #93c5fd; }
+  .empty { color: #475569; font-size: 0.82rem; padding: 4px 0; }
+
+  .loading { text-align: center; padding: 60px; color: #475569; }
+  .spinner { width: 30px; height: 30px; border: 3px solid #1e293b; border-top-color: #7dd3fc; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .err-box { background: #1a0a0a; border: 1px solid #7f1d1d; border-radius: 8px; padding: 20px; color: #fca5a5; font-size: 0.83rem; line-height: 1.7; }
+  .err-box code { color: #f87171; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>⚡ Method Impact Analyzer</h1>
+    <div class="subtitle">Live DB tables · API calls · execution time per @TrackImpact method</div>
+  </div>
+  <div class="controls">
+    <input class="api-input" id="apiBase" value="http://localhost:8080" placeholder="http://localhost:8080" onchange="loadAll()" />
+    <select id="methodSelect" onchange="onMethodChange()"><option>—</option></select>
+    <button class="btn" id="refreshBtn" onclick="loadAll()">↺ Refresh</button>
+    <button class="btn" id="autoBtn"    onclick="toggleAuto()">Auto OFF</button>
+    <span class="status-label">
+      <span class="sdot s-idle" id="sdot"></span>
+      <span id="stxt">Connecting…</span>
+    </span>
+  </div>
+</div>
+
+<div id="app"><div class="loading"><div class="spinner"></div>Connecting to API…</div></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+const state = { reports: {}, methods: [], tab: 'summary', timer: null };
+
+window.addEventListener('DOMContentLoaded', loadAll);
+
+function base() { return (document.getElementById('apiBase').value||'http://localhost:8080').replace(/\/$/,''); }
+
+// ── Load ───────────────────────────────────────────────────────────────────────
+async function loadAll() {
+  const btn = document.getElementById('refreshBtn');
+  btn.textContent = '↻…'; btn.disabled = true;
+  try {
+    const res = await fetch(`${base()}/api/impact`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const sigs = await res.json();
+
+    if (!sigs || !sigs.length) {
+      setStatus('idle','Connected — no reports yet. Trigger a @TrackImpact endpoint.');
+      showNoReports(); return;
+    }
+
+    const all = await Promise.all(
+      [...sigs].map(s => fetch(`${base()}/api/impact/${encodeURIComponent(s)}`).then(r=>r.json()).catch(()=>null))
+    );
+    state.methods = [...sigs];
+    all.forEach((r,i) => { if(r) state.reports[state.methods[i]] = r; });
+
+    rebuildSelect();
+    setStatus('live', `Live · ${state.methods.length} method${state.methods.length>1?'s':''} tracked`);
+    const sel = document.getElementById('methodSelect');
+    if (sel.value && state.reports[sel.value]) renderReport(state.reports[sel.value]);
+
+  } catch(e) {
+    setStatus('err','API unreachable');
+    document.getElementById('app').innerHTML = `
+      <div class="err-box">
+        <strong>⚠ Cannot reach ${base()}/api/impact</strong><br><br>
+        1. Start the app with local profile:<br>
+        <code>mvn spring-boot:run -Dspring-boot.run.profiles=local</code><br><br>
+        2. Trigger a tracked method:<br>
+        <code>curl -X POST http://localhost:8080/orders -H "Content-Type: application/json" -d '{"userId":1,"productId":2,"quantity":1}'</code><br><br>
+        3. Click Refresh above.<br><br>
+        Error: ${e.message}
+      </div>`;
+  } finally { btn.textContent='↺ Refresh'; btn.disabled=false; }
+}
+
+function rebuildSelect() {
+  const sel = document.getElementById('methodSelect');
+  const prev = sel.value;
+  sel.innerHTML = state.methods.map(m=>`<option value="${m}">${m}</option>`).join('');
+  if (prev && state.methods.includes(prev)) sel.value = prev;
+}
+
+function onMethodChange() {
+  const r = state.reports[document.getElementById('methodSelect').value];
+  if (r) renderReport(r);
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────────
+function renderReport(r) {
+  if (!r) return;
+  const reads  = r.tablesRead    || [];
+  const writes = r.tablesWritten || [];
+  const apis   = r.apiCalls      || [];
+  const dbOps  = r.dbOps         || [];
+  const stack  = r.callStack     || [];
+  const lines  = r.linesExecuted  || 0;
+  const execMs = r.executionTimeMs || 0;
+  const ts     = r.capturedAt ? new Date(r.capturedAt).toLocaleTimeString() : '—';
+
+  // Breakdown (estimated when JaCoCo agent not attached)
+  const dbR  = reads.reduce((s,t)=>s+t.count,0) * 12;
+  const dbW  = writes.reduce((s,t)=>s+t.count,0) * 15;
+  const apiL = apis.length * 18;
+  const logic= Math.max(0, lines - dbR - dbW - apiL);
+  const breakdown = [
+    {label:'Business Logic', lines:logic, color:'#a78bfa'},
+    {label:'DB Reads',       lines:dbR,   color:'#34d399'},
+    {label:'DB Writes',      lines:dbW,   color:'#f97316'},
+    {label:'API Calls',      lines:apiL,  color:'#f472b6'},
+  ].filter(b=>b.lines>0);
+  const maxBar = Math.max(...breakdown.map(b=>b.lines),1);
+
+  document.getElementById('app').innerHTML = `
+    <div class="method-header">
+      <div class="method-name">${h(r.methodSignature)}</div>
+      <div class="method-meta">
+        <span>label: ${h(r.label||r.methodSignature)}</span>
+        <span>captured at: ${ts}</span>
+        <span>run #${(state.reports[r.methodSignature]||{}).runCount||1}</span>
+      </div>
+      <div class="stats-row">
+        <div class="stat-box"><div class="stat-value sv-exec">${execMs}ms</div><div class="stat-label">Exec Time</div></div>
+        <div class="stat-box"><div class="stat-value sv-lines">${lines>0?lines.toLocaleString():'—'}</div><div class="stat-label">Lines</div></div>
+        <div class="stat-box"><div class="stat-value sv-read">${reads.length}</div><div class="stat-label">Tables Read</div></div>
+        <div class="stat-box"><div class="stat-value sv-write">${writes.length}</div><div class="stat-label">Tables Written</div></div>
+        <div class="stat-box"><div class="stat-value sv-api">${apis.length}</div><div class="stat-label">APIs Called</div></div>
+        <div class="stat-box"><div class="stat-value" style="color:#64748b">${dbOps.length}</div><div class="stat-label">Total DB Ops</div></div>
+      </div>
+    </div>
+
+    <div class="tab-row">
+      <div class="tab ${state.tab==='summary'?'active':''}" onclick="switchTab('summary')">Summary</div>
+      <div class="tab ${state.tab==='raw'?'active':''}"     onclick="switchTab('raw')">Raw DB Ops (${dbOps.length})</div>
+      <div class="tab ${state.tab==='tree'?'active':''}"    onclick="switchTab('tree')">Call Trace (${stack.length})</div>
+    </div>
+
+    ${state.tab==='summary' ? summaryTab(reads,writes,apis,breakdown,maxBar) : ''}
+    ${state.tab==='raw'     ? rawTab(dbOps)                                   : ''}
+    ${state.tab==='tree'    ? treeTab(r.methodSignature, stack)               : ''}
+  `;
+}
+
+// ── Summary tab ───────────────────────────────────────────────────────────────
+function summaryTab(reads,writes,apis,breakdown,maxBar) {
+  return `
+    <div class="grid">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title"><div class="dot" style="background:#34d399"></div>Tables Read</div>
+        ${reads.length ? reads.map(t=>`
+          <div class="row-item row-read">
+            <span>${h(t.table)}</span>
+            <span class="badge b-select">SELECT ×${t.count}</span>
+          </div>`).join('') : '<div class="empty">No tables read</div>'}
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title"><div class="dot" style="background:#f97316"></div>Tables Written</div>
+        ${writes.length ? writes.map(t=>`
+          <div class="row-item row-write">
+            <span>${h(t.table)}</span>
+            <span class="badge b-${t.operation.toLowerCase()}">${h(t.operation)} ×${t.count}</span>
+          </div>`).join('') : '<div class="empty">No tables written (read-only method)</div>'}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:#f472b6"></div>External API Calls</div>
+      ${apis.length ? apis.map(a=>`
+        <div class="row-item row-api">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${h(a.url)}</span>
+          <span style="display:flex;gap:6px;align-items:center;flex-shrink:0;margin-left:8px">
+            <span style="color:#64748b;font-size:0.75rem">~${a.durationMs}ms</span>
+            <span class="badge b-${(a.httpMethod||'get').toLowerCase()}">${h(a.httpMethod)}</span>
+          </span>
+        </div>`).join('') : '<div class="empty">No external API calls</div>'}
+    </div>
+
+    ${breakdown.length ? `
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:#a78bfa"></div>Line Execution Breakdown
+        ${breakdown.reduce((s,b)=>s+b.lines,0)===0?'':''}
+      </div>
+      <div style="font-size:0.71rem;color:#475569;margin-bottom:10px">
+        ${breakdown.reduce((s,b)=>s+b.lines,0)===0
+          ? 'No line data — attach JaCoCo agent for exact counts.'
+          : 'Estimated breakdown. Attach JaCoCo agent for exact values.'}
+      </div>
+      ${breakdown.map(b=>`
+        <div class="bar-row">
+          <div class="bar-label">${b.label}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${(b.lines/maxBar*100).toFixed(1)}%;background:${b.color}"></div></div>
+          <div class="bar-count">${b.lines}</div>
+        </div>`).join('')}
+    </div>` : ''}`;
+}
+
+// ── Raw DB ops tab ─────────────────────────────────────────────────────────────
+function rawTab(dbOps) {
+  if (!dbOps.length) return '<div class="card"><div class="empty">No DB operations recorded.</div></div>';
+  return `<div class="card">
+    <div class="card-title"><div class="dot" style="background:#34d399"></div>All DB Operations — in execution order</div>
+    <div style="overflow-x:auto">
+      <table class="raw-table">
+        <thead><tr><th>#</th><th>Op</th><th>Table</th><th>SQL (truncated)</th><th>Called from</th></tr></thead>
+        <tbody>
+          ${dbOps.map((op,i)=>`
+            <tr>
+              <td style="color:#475569;font-size:0.7rem">${i+1}</td>
+              <td class="op-${op.operation.toLowerCase()}">${h(op.operation)}</td>
+              <td style="color:#e2e8f0">${h(op.table)}</td>
+              <td class="sql-cell" title="${h(op.sql)}">${h(op.sql)}</td>
+              <td class="frame-cell">${h((op.callerFrame||'').split('.').slice(-2).join('.'))}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+// ── Call trace tab ─────────────────────────────────────────────────────────────
+// Maps the flat callStack string array → visual tree
+// Each entry looks like: "[DB] SELECT USERS  ← com.demo.UserService.getUser:45"
+//                    or: "[API] GET https://... ~120ms  ← com.demo.OrderService.charge:88"
+function treeTab(sig, stack) {
+  const nodes = [{ indent:'', name: sig, cls:'t-root', detail:'' }];
+
+  stack.forEach((entry, i) => {
+    const isDb  = entry.startsWith('[DB]');
+    const isApi = entry.startsWith('[API]');
+    const [main, frame=''] = entry.split('  ← ');
+    const label = main.replace(/^\[(DB|API)\]\s*/,'');
+    const prefix = isDb ? '[DB] ' : isApi ? '[API] ' : '';
+    const isLast = i === stack.length - 1;
+    const shortFrame = frame.split('.').slice(-2).join('.');
+
+    nodes.push({
+      indent: isLast ? '└─ ' : '├─ ',
+      name:   prefix + label,
+      cls:    isDb ? 't-db' : isApi ? 't-api' : 't-plain',
+      detail: shortFrame ? `← ${shortFrame}` : ''
+    });
+  });
+
+  return `<div class="card">
+    <div class="card-title"><div class="dot" style="background:#38bdf8"></div>Call Trace — DB ops and API calls in execution order</div>
+    ${nodes.map(n=>`
+      <div class="tree-node">
+        <span class="tree-indent">${n.indent}</span>
+        <span class="${n.cls}">${h(n.name)}</span>
+        ${n.detail?`<span class="t-detail">${h(n.detail)}</span>`:''}
+      </div>`).join('')}
+  </div>`;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function showNoReports() {
+  document.getElementById('app').innerHTML = `
+    <div class="card">
+      <div style="color:#475569;padding:20px;text-align:center;line-height:1.8">
+        Connected but no reports yet.<br>
+        Call a <code style="color:#64748b">@TrackImpact</code> endpoint, then click Refresh.<br><br>
+        <code style="color:#475569;font-size:0.78rem">curl -X POST http://localhost:8080/orders -H "Content-Type: application/json" -d '{"userId":1,"productId":2,"quantity":1}'</code>
+      </div>
+    </div>`;
+}
+
+function switchTab(tab) {
+  state.tab = tab;
+  const r = state.reports[document.getElementById('methodSelect').value];
+  if (r) renderReport(r);
+}
+
+function toggleAuto() {
+  const btn = document.getElementById('autoBtn');
+  if (state.timer) { clearInterval(state.timer); state.timer=null; btn.textContent='Auto OFF'; btn.classList.remove('on'); }
+  else { state.timer=setInterval(loadAll,4000); btn.textContent='Auto ON (4s)'; btn.classList.add('on'); loadAll(); }
+}
+
+function setStatus(type, msg) {
+  document.getElementById('sdot').className='sdot s-'+type;
+  document.getElementById('stxt').textContent=msg;
+}
+
+function h(s) { return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+</body>
+</html>
